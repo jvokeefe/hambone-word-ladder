@@ -303,7 +303,7 @@ export default function App() {
           )}
         </div>
         <p style={{ color: CREAM, fontSize: '0.75rem', marginTop: 6, opacity: 0.5 }}>
-          Each correct answer begins with the last letter of the answer before it.
+          Each correct answer begins with the last letter of the answer before it. The answer to question 1 begins with the last letter of the answer to question 5.
         </p>
       </div>
 
