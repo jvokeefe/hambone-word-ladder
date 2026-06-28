@@ -35,8 +35,23 @@ function isDaylightSaving(date) {
   return date.getTimezoneOffset() < stdOffset;
 }
 
-async function fetchLadder() {
-  const today = getTodayKey();
+function getPast7Days() {
+  const days = [];
+  for (let i = 1; i <= 7; i++) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    days.push(d.toISOString().slice(0, 10));
+  }
+  return days;
+}
+
+function formatDate(dateStr) {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const d = new Date(year, month - 1, day);
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+async function fetchAllLadders() {
   const response = await fetch(SHEET_URL);
   const text = await response.text();
   const lines = text.trim().split(/\r?\n/);
@@ -47,32 +62,27 @@ async function fetchLadder() {
     let current = '';
     let inQuotes = false;
     for (let i = 0; i < line.length; i++) {
-      if (line[i] === '"') {
-        inQuotes = !inQuotes;
-      } else if (line[i] === ',' && !inQuotes) {
-        values.push(current.trim().replace(/^"|"$/g, ''));
-        current = '';
-      } else {
-        current += line[i];
-      }
+      if (line[i] === '"') inQuotes = !inQuotes;
+      else if (line[i] === ',' && !inQuotes) { values.push(current.trim().replace(/^"|"$/g, '')); current = ''; }
+      else current += line[i];
     }
     values.push(current.trim().replace(/^"|"$/g, ''));
     const obj = {};
     headers.forEach((h, i) => { obj[h] = (values[i] || '').trim(); });
     return obj;
-  });
+  }).filter(r => r.status === 'app-ready');
 
-  const todayRows = rows
-    .filter(r => r.ladder_date === today && r.status === 'app-ready')
+  return rows;
+}
+
+function buildLadderForDate(allRows, date) {
+  const rows = allRows
+    .filter(r => r.ladder_date === date)
     .sort((a, b) => parseInt(a.position) - parseInt(b.position));
-
-  if (todayRows.length !== 5) return null;
-
-  const theme = todayRows.find(r => r.theme)?.theme || null;
-
+  if (rows.length !== 5) return null;
   return {
-    questions: todayRows,
-    theme
+    questions: rows,
+    theme: rows.find(r => r.theme)?.theme || null
   };
 }
 
@@ -124,11 +134,10 @@ async function updateStreak(sessionId) {
   return { streak: newStreak, best_streak: newBest };
 }
 
-async function saveResponse(sessionId, answers, score) {
-  const today = getTodayKey();
+async function saveResponse(sessionId, date, answers, score) {
   await supabase.from('ladder_responses').upsert({
     session_id: sessionId,
-    ladder_date: today,
+    ladder_date: date,
     a1: answers[0] || '',
     a2: answers[1] || '',
     a3: answers[2] || '',
@@ -138,13 +147,12 @@ async function saveResponse(sessionId, answers, score) {
   }, { onConflict: 'session_id,ladder_date' });
 }
 
-async function getTodayResponse(sessionId) {
-  const today = getTodayKey();
+async function getResponseForDate(sessionId, date) {
   const { data } = await supabase
     .from('ladder_responses')
     .select('*')
     .eq('session_id', sessionId)
-    .eq('ladder_date', today)
+    .eq('ladder_date', date)
     .maybeSingle();
   return data;
 }
@@ -188,48 +196,43 @@ function checkAnswer(input, question) {
 
 export default function App() {
   const [screen, setScreen] = useState('home');
-  const [ladder, setLadder] = useState(null);
+  const [allRows, setAllRows] = useState([]);
+  const [activeLadder, setActiveLadder] = useState(null);
+  const [activeDate, setActiveDate] = useState(null);
   const [answers, setAnswers] = useState(['', '', '', '', '']);
   const [finalAnswers, setFinalAnswers] = useState(['', '', '', '', '']);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [streakData, setStreakData] = useState({ streak: 0, best_streak: 0 });
-  const [alreadyPlayed, setAlreadyPlayed] = useState(false);
+  const [todayPlayed, setTodayPlayed] = useState(false);
   const [todayResponse, setTodayResponse] = useState(null);
   const [correctPct, setCorrectPct] = useState(null);
+  const [playedDates, setPlayedDates] = useState({});
   const sessionId = getSessionId();
-  const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+  const today = getTodayKey();
+  const todayFormatted = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
 
   useEffect(() => {
     async function init() {
       try {
-        const [ladderData, streak, response, allResponses] = await Promise.all([
-          fetchLadder(),
+        const [rows, streak, todayResp, allResponses] = await Promise.all([
+          fetchAllLadders(),
           getStreak(sessionId),
-          getTodayResponse(sessionId),
+          getResponseForDate(sessionId, today),
           getAllResponses(sessionId)
         ]);
 
-        if (!ladderData) {
-          setError("No ladder available for today. Check back soon!");
-          return;
-        }
-
-        setLadder(ladderData);
+        setAllRows(rows);
         setStreakData(streak);
 
-        if (allResponses.length > 0) {
-          const totalCorrect = allResponses.reduce((acc, r) => {
-            return acc + [r.a1, r.a2, r.a3, r.a4, r.a5].filter((a, i) => {
-              return false;
-            }).length;
-          }, 0);
-        }
+        const played = {};
+        allResponses.forEach(r => { played[r.ladder_date] = r; });
+        setPlayedDates(played);
 
-        if (response) {
-          setAlreadyPlayed(true);
-          setTodayResponse(response);
-          setFinalAnswers([response.a1, response.a2, response.a3, response.a4, response.a5]);
+        if (todayResp) {
+          setTodayPlayed(true);
+          setTodayResponse(todayResp);
+          setFinalAnswers([todayResp.a1, todayResp.a2, todayResp.a3, todayResp.a4, todayResp.a5]);
         }
 
         if (allResponses.length > 0) {
@@ -248,33 +251,54 @@ export default function App() {
     init();
   }, []);
 
+  function playDate(date) {
+    const ladder = buildLadderForDate(allRows, date);
+    if (!ladder) return;
+    setActiveLadder(ladder);
+    setActiveDate(date);
+    const existing = playedDates[date];
+    if (existing) {
+      setFinalAnswers([existing.a1, existing.a2, existing.a3, existing.a4, existing.a5]);
+      setTodayResponse(existing);
+      setScreen('results');
+    } else {
+      setAnswers(['', '', '', '', '']);
+      setScreen('play');
+    }
+  }
+
   async function handleSubmit() {
+    const ladder = activeLadder;
     const score = ladder.questions.reduce((acc, q, i) => {
       return acc + (checkAnswer(answers[i], q) ? 1 : 0);
     }, 0);
-    await Promise.all([
-      saveResponse(sessionId, answers, score),
-      updateStreak(sessionId)
-    ]);
-    const newStreak = await getStreak(sessionId);
-    setStreakData(newStreak);
+
+    await saveResponse(sessionId, activeDate, answers, score);
+
+    const isToday = activeDate === today;
+    let newStreak = streakData;
+    if (isToday) {
+      newStreak = await updateStreak(sessionId);
+      setStreakData(newStreak);
+      setTodayPlayed(true);
+      setTodayResponse({ score });
+    }
+
+    const newPlayed = { ...playedDates, [activeDate]: { score, a1: answers[0], a2: answers[1], a3: answers[2], a4: answers[3], a5: answers[4] } };
+    setPlayedDates(newPlayed);
+
+    if (allResponses => {
+      const total = Object.values(newPlayed).reduce((acc, r) => acc + (r.score || 0), 0);
+      const possible = Object.keys(newPlayed).length * 5;
+      setCorrectPct(Math.round((total / possible) * 100));
+    }) {}
+
     setFinalAnswers([...answers]);
-    setAlreadyPlayed(true);
-    setTodayResponse({ score });
     setScreen('results');
   }
 
   if (loading) return (
-    <div style={{
-      minHeight: '100vh',
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'center',
-      padding: '2rem 1.25rem',
-      textAlign: 'center',
-      background: NAVY
-    }}>
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '2rem', textAlign: 'center', background: NAVY }}>
       <img src={LOGO} alt="Hambone's" style={{ width: 80, height: 80, marginBottom: 20 }} />
       <h1 style={{ fontFamily: "'DM Serif Display', serif", fontSize: '2rem', fontWeight: 400, color: CREAM, marginBottom: 8 }}>{APP_NAME}</h1>
       <p style={{ color: ORANGE, fontSize: '0.9rem', fontStyle: 'italic' }}>Climbing the ladder...</p>
@@ -288,49 +312,52 @@ export default function App() {
     </div>
   );
 
+  const past7 = getPast7Days().filter(d => buildLadderForDate(allRows, d));
+
   return (
     <div style={{ maxWidth: 480, margin: '0 auto', padding: '2rem 1.25rem' }}>
       <div style={{ marginBottom: '1.5rem', textAlign: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
-          <h1 style={{
-            fontFamily: "'DM Serif Display', serif",
-            fontSize: '1.75rem',
-            fontWeight: 400,
-            color: CREAM
-          }}>{APP_NAME}</h1>
+          <h1 style={{ fontFamily: "'DM Serif Display', serif", fontSize: '1.75rem', fontWeight: 400, color: CREAM }}>{APP_NAME}</h1>
           {screen !== 'home' && (
             <img src={LOGO} alt="Hambone's" style={{ width: 28, height: 28, flexShrink: 0 }} />
           )}
         </div>
         <p style={{ color: CREAM, fontSize: '0.75rem', marginTop: 6, opacity: 0.5 }}>
-          Each correct answer begins with the last letter of the answer before it. The answer to question 1 begins with the last letter of the answer to question 5.
+          Each correct answer begins with the last letter of the answer before it.
         </p>
       </div>
 
       {screen === 'home' && (
         <HomeScreen
-          today={today}
+          today={todayFormatted}
           streakData={streakData}
           correctPct={correctPct}
-          alreadyPlayed={alreadyPlayed}
+          todayPlayed={todayPlayed}
           todayResponse={todayResponse}
-          onPlay={() => setScreen('play')}
-          onReview={() => setScreen('results')}
-          hasResults={finalAnswers.some(a => a)}
+          todayAvailable={!!buildLadderForDate(allRows, today)}
+          onPlayToday={() => playDate(today)}
+          onReviewToday={() => { setActiveLadder(buildLadderForDate(allRows, today)); setActiveDate(today); setScreen('results'); }}
+          past7={past7}
+          playedDates={playedDates}
+          onPlayPast={(date) => playDate(date)}
+          hasTodayResults={todayPlayed}
         />
       )}
       {screen === 'play' && (
         <PlayScreen
-          ladder={ladder}
+          ladder={activeLadder}
+          activeDate={activeDate}
           answers={answers}
           setAnswers={setAnswers}
           onSubmit={handleSubmit}
-          alreadyPlayed={alreadyPlayed}
+          onBack={() => setScreen('home')}
         />
       )}
       {screen === 'results' && (
         <ResultsScreen
-          ladder={ladder}
+          ladder={activeLadder}
+          activeDate={activeDate}
           userAnswers={finalAnswers}
           streakData={streakData}
           todayResponse={todayResponse}
@@ -341,7 +368,7 @@ export default function App() {
   );
 }
 
-function HomeScreen({ today, streakData, correctPct, alreadyPlayed, todayResponse, onPlay, onReview, hasResults }) {
+function HomeScreen({ today, streakData, correctPct, todayPlayed, todayResponse, todayAvailable, onPlayToday, onReviewToday, past7, playedDates, onPlayPast, hasTodayResults }) {
   return (
     <div>
       <p style={{ fontSize: '0.85rem', color: CREAM, opacity: 0.5, marginBottom: '1rem', textAlign: 'center' }}>{today}</p>
@@ -351,26 +378,22 @@ function HomeScreen({ today, streakData, correctPct, alreadyPlayed, todayRespons
         <img src={LOGO} alt="Hambone's Trivia" style={{ width: 80, height: 80 }} />
       </div>
 
-      <div style={{
-        background: NAVY_CARD,
-        border: `1px solid rgba(254,248,208,0.1)`,
-        borderRadius: 14,
-        padding: '1.5rem',
-        marginBottom: '1.25rem',
-        textAlign: 'center'
-      }}>
-        {alreadyPlayed ? (
+      <div style={{ background: NAVY_CARD, border: `1px solid rgba(254,248,208,0.1)`, borderRadius: 14, padding: '1.5rem', marginBottom: '1.25rem', textAlign: 'center' }}>
+        {todayPlayed ? (
           <>
             <p style={{ fontSize: '0.75rem', color: CREAM, opacity: 0.5, marginBottom: 8, letterSpacing: '0.08em', textTransform: 'uppercase' }}>today's score</p>
             <p style={{ fontFamily: "'DM Serif Display', serif", fontSize: '3.5rem', fontWeight: 400, color: CREAM, lineHeight: 1 }}>{todayResponse.score}/5</p>
             <p style={{ fontSize: '0.85rem', color: CREAM, opacity: 0.5, marginTop: 10 }}>Come back tomorrow for a new ladder!</p>
           </>
-        ) : (
+        ) : todayAvailable ? (
           <>
             <p style={{ fontFamily: "'DM Serif Display', serif", fontSize: '1.4rem', fontWeight: 400, marginBottom: 8, color: CREAM }}>Today's ladder is ready.</p>
-            <p style={{ fontSize: '0.875rem', color: CREAM, opacity: 0.6, lineHeight: 1.6 }}>
-              5 questions. One chain. Can you climb it?
-            </p>
+            <p style={{ fontSize: '0.875rem', color: CREAM, opacity: 0.6, lineHeight: 1.6 }}>5 questions. One chain. Can you climb it?</p>
+          </>
+        ) : (
+          <>
+            <p style={{ fontFamily: "'DM Serif Display', serif", fontSize: '1.4rem', fontWeight: 400, marginBottom: 8, color: CREAM }}>No ladder today yet.</p>
+            <p style={{ fontSize: '0.875rem', color: CREAM, opacity: 0.6 }}>Check back soon!</p>
           </>
         )}
       </div>
@@ -381,58 +404,75 @@ function HomeScreen({ today, streakData, correctPct, alreadyPlayed, todayRespons
         {correctPct !== null && <StatPill label="Correct %" value={`${correctPct}%`} />}
       </div>
 
-      {!alreadyPlayed && (
-        <button onClick={onPlay} style={{
-          width: '100%',
-          padding: '1rem',
-          background: ORANGE,
-          color: CREAM,
-          border: 'none',
-          borderRadius: 12,
-          fontSize: '1rem',
-          fontWeight: 700,
-          cursor: 'pointer',
-          fontFamily: 'Inter, sans-serif'
+      {!todayPlayed && todayAvailable && (
+        <button onClick={onPlayToday} style={{
+          width: '100%', padding: '1rem', background: ORANGE, color: CREAM, border: 'none',
+          borderRadius: 12, fontSize: '1rem', fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif'
         }}>
           Climb today's ladder →
         </button>
       )}
 
-      {alreadyPlayed && hasResults && (
-        <button onClick={onReview} style={{
-          width: '100%',
-          padding: '1rem',
-          background: 'transparent',
-          color: CREAM,
-          border: `1.5px solid rgba(254,248,208,0.25)`,
-          borderRadius: 12,
-          fontSize: '1rem',
-          fontWeight: 600,
-          cursor: 'pointer',
-          marginTop: '0.75rem',
-          fontFamily: 'Inter, sans-serif'
+      {todayPlayed && hasTodayResults && (
+        <button onClick={onReviewToday} style={{
+          width: '100%', padding: '1rem', background: 'transparent', color: CREAM,
+          border: `1.5px solid rgba(254,248,208,0.25)`, borderRadius: 12, fontSize: '1rem',
+          fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif'
         }}>
           Review today's answers →
         </button>
+      )}
+
+      {past7.length > 0 && (
+        <div style={{ marginTop: '1.75rem' }}>
+          <p style={{ fontSize: '0.75rem', color: CREAM, opacity: 0.4, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 12 }}>Past Ladders</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {past7.map(date => {
+              const played = playedDates[date];
+              return (
+                <button key={date} onClick={() => onPlayPast(date)} style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  padding: '0.875rem 1.25rem', background: NAVY_CARD,
+                  border: `1px solid rgba(254,248,208,0.1)`, borderRadius: 12,
+                  cursor: 'pointer', fontFamily: 'Inter, sans-serif', transition: 'border-color 0.15s'
+                }}
+                  onMouseEnter={e => e.currentTarget.style.borderColor = 'rgba(244,135,23,0.4)'}
+                  onMouseLeave={e => e.currentTarget.style.borderColor = 'rgba(254,248,208,0.1)'}
+                >
+                  <span style={{ color: CREAM, fontSize: '0.9rem' }}>{formatDate(date)}</span>
+                  {played ? (
+                    <span style={{ color: '#4ade80', fontSize: '0.8rem', fontWeight: 600 }}>{played.score}/5 ✓</span>
+                  ) : (
+                    <span style={{ color: ORANGE, fontSize: '0.8rem', fontWeight: 600 }}>Play →</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
       )}
     </div>
   );
 }
 
-function PlayScreen({ ladder, answers, setAnswers, onSubmit, alreadyPlayed }) {
+function PlayScreen({ ladder, activeDate, answers, setAnswers, onSubmit, onBack }) {
   const allFilled = answers.every(a => a.trim());
+  const today = getTodayKey();
+  const isPast = activeDate !== today;
 
   return (
     <div>
+      {isPast && (
+        <div style={{ marginBottom: '1rem' }}>
+          <button onClick={onBack} style={{ background: 'transparent', border: 'none', color: CREAM, opacity: 0.6, cursor: 'pointer', fontSize: '0.85rem', fontFamily: 'Inter, sans-serif', padding: 0 }}>
+            ← Back
+          </button>
+          <p style={{ color: GOLD, fontSize: '0.8rem', marginTop: 6 }}>Playing: {formatDate(activeDate)}</p>
+        </div>
+      )}
+
       {ladder.theme && (
-        <div style={{
-          background: 'rgba(238,201,24,0.1)',
-          border: `1px solid rgba(238,201,24,0.3)`,
-          borderRadius: 12,
-          padding: '0.875rem 1.25rem',
-          marginBottom: '1.5rem',
-          textAlign: 'center'
-        }}>
+        <div style={{ background: 'rgba(238,201,24,0.1)', border: `1px solid rgba(238,201,24,0.3)`, borderRadius: 12, padding: '0.875rem 1.25rem', marginBottom: '1.5rem', textAlign: 'center' }}>
           <p style={{ fontSize: '0.75rem', color: GOLD, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 4 }}>today's theme</p>
           <p style={{ fontSize: '0.95rem', fontWeight: 600, color: CREAM }}>{ladder.theme}</p>
         </div>
@@ -443,13 +483,7 @@ function PlayScreen({ ladder, answers, setAnswers, onSubmit, alreadyPlayed }) {
           <div key={i}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
               <span style={{ fontSize: '0.75rem', color: ORANGE, fontWeight: 700, minWidth: 20 }}>{i + 1}.</span>
-              <p style={{
-                fontFamily: "'DM Serif Display', serif",
-                fontSize: '1.1rem',
-                fontWeight: 400,
-                lineHeight: 1.4,
-                color: CREAM
-              }}>{q.question}</p>
+              <p style={{ fontFamily: "'DM Serif Display', serif", fontSize: '1.1rem', fontWeight: 400, lineHeight: 1.4, color: CREAM }}>{q.question}</p>
             </div>
             <input
               type="text"
@@ -468,16 +502,9 @@ function PlayScreen({ ladder, answers, setAnswers, onSubmit, alreadyPlayed }) {
               id={`answer-${i}`}
               placeholder="Your answer..."
               style={{
-                width: '100%',
-                padding: '0.75rem 1rem',
-                fontSize: '1rem',
-                border: `1.5px solid rgba(254,248,208,0.2)`,
-                borderRadius: 10,
-                outline: 'none',
-                background: NAVY_CARD,
-                fontFamily: 'Inter, sans-serif',
-                color: CREAM,
-                transition: 'border-color 0.15s'
+                width: '100%', padding: '0.75rem 1rem', fontSize: '1rem',
+                border: `1.5px solid rgba(254,248,208,0.2)`, borderRadius: 10, outline: 'none',
+                background: NAVY_CARD, fontFamily: 'Inter, sans-serif', color: CREAM, transition: 'border-color 0.15s'
               }}
               onFocus={e => e.target.style.borderColor = ORANGE}
               onBlur={e => e.target.style.borderColor = 'rgba(254,248,208,0.2)'}
@@ -486,41 +513,30 @@ function PlayScreen({ ladder, answers, setAnswers, onSubmit, alreadyPlayed }) {
         ))}
       </div>
 
-      <button
-        onClick={onSubmit}
-        disabled={!allFilled}
-        style={{
-          width: '100%',
-          padding: '1rem',
-          background: allFilled ? ORANGE : 'rgba(244,135,23,0.3)',
-          color: CREAM,
-          border: 'none',
-          borderRadius: 12,
-          fontSize: '1rem',
-          fontWeight: 700,
-          cursor: allFilled ? 'pointer' : 'default',
-          fontFamily: 'Inter, sans-serif',
-          transition: 'background 0.15s'
-        }}
-      >
+      <button onClick={onSubmit} disabled={!allFilled} style={{
+        width: '100%', padding: '1rem',
+        background: allFilled ? ORANGE : 'rgba(244,135,23,0.3)',
+        color: CREAM, border: 'none', borderRadius: 12, fontSize: '1rem', fontWeight: 700,
+        cursor: allFilled ? 'pointer' : 'default', fontFamily: 'Inter, sans-serif', transition: 'background 0.15s'
+      }}>
         Submit answers →
       </button>
     </div>
   );
 }
 
-function ResultsScreen({ ladder, userAnswers, streakData, todayResponse, onHome }) {
+function ResultsScreen({ ladder, activeDate, userAnswers, streakData, todayResponse, onHome }) {
   const [copied, setCopied] = useState(false);
-  const score = todayResponse?.score ?? ladder.questions.reduce((acc, q, i) => acc + (checkAnswer(userAnswers[i] || '', q) ? 1 : 0), 0);
-
+  const today = getTodayKey();
+  const isPast = activeDate !== today;
+  const score = ladder.questions.reduce((acc, q, i) => acc + (checkAnswer(userAnswers[i] || '', q) ? 1 : 0), 0);
   const correctAnswers = ladder.questions.map(q => q.answer);
-  const chainDisplay = correctAnswers.join(' → ');
 
   const emojiRow = ladder.questions.map((q, i) =>
     checkAnswer(userAnswers[i] || '', q) ? '🟩' : '🟥'
   ).join(' ');
 
-  const shareText = `Hambone's Word Ladder\n${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric' })} — ${score}/5\n\n${emojiRow}\n\nPlay today's ladder: hambone-word-ladder.vercel.app`;
+  const shareText = `Hambone's Word Ladder\n${formatDate(activeDate)} — ${score}/5\n\n${emojiRow}\n\nPlay today's ladder: hambone-word-ladder.vercel.app`;
 
   const perfectMessages = [
     "Perfect! Can you do it again tomorrow?",
@@ -536,47 +552,37 @@ function ResultsScreen({ ladder, userAnswers, streakData, todayResponse, onHome 
   }
 
   function nativeShare() {
-    navigator.share({
-      title: "Hambone's Word Ladder",
-      text: shareText,
-      url: 'https://hambone-word-ladder.vercel.app'
-    }).catch(() => {});
+    navigator.share({ title: "Hambone's Word Ladder", text: shareText, url: 'https://hambone-word-ladder.vercel.app' }).catch(() => {});
   }
 
   return (
     <div>
-      <div style={{
-        background: NAVY_CARD,
-        border: `1px solid rgba(254,248,208,0.1)`,
-        borderRadius: 14,
-        padding: '1.75rem',
-        marginBottom: '1rem',
-        textAlign: 'center'
-      }}>
-        <p style={{ fontSize: '0.75rem', color: CREAM, opacity: 0.5, marginBottom: 8, letterSpacing: '0.08em', textTransform: 'uppercase' }}>today's score</p>
+      {isPast && (
+        <div style={{ marginBottom: '1rem' }}>
+          <button onClick={onHome} style={{ background: 'transparent', border: 'none', color: CREAM, opacity: 0.6, cursor: 'pointer', fontSize: '0.85rem', fontFamily: 'Inter, sans-serif', padding: 0 }}>
+            ← Back to home
+          </button>
+          <p style={{ color: GOLD, fontSize: '0.8rem', marginTop: 6 }}>{formatDate(activeDate)}</p>
+        </div>
+      )}
+
+      <div style={{ background: NAVY_CARD, border: `1px solid rgba(254,248,208,0.1)`, borderRadius: 14, padding: '1.75rem', marginBottom: '1rem', textAlign: 'center' }}>
+        <p style={{ fontSize: '0.75rem', color: CREAM, opacity: 0.5, marginBottom: 8, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+          {isPast ? formatDate(activeDate) : "today's score"}
+        </p>
         <p style={{ fontFamily: "'DM Serif Display', serif", fontSize: '4rem', fontWeight: 400, color: CREAM, lineHeight: 1 }}>{score}/5</p>
-        {score === 5 && (
-          <p style={{ color: GOLD, fontSize: '0.9rem', fontWeight: 600, marginTop: 10 }}>{perfectMsg}</p>
-        )}
-        {streakData.streak > 0 && (
-          <p style={{ color: ORANGE, fontSize: '0.9rem', fontWeight: 600, marginTop: 8 }}>
-            🔥 {streakData.streak} day streak
-          </p>
+        {score === 5 && <p style={{ color: GOLD, fontSize: '0.9rem', fontWeight: 600, marginTop: 10 }}>{perfectMsg}</p>}
+        {!isPast && streakData.streak > 0 && (
+          <p style={{ color: ORANGE, fontSize: '0.9rem', fontWeight: 600, marginTop: 8 }}>🔥 {streakData.streak} day streak</p>
         )}
       </div>
 
-      <div style={{
-        background: NAVY_CARD,
-        border: `1px solid rgba(254,248,208,0.1)`,
-        borderRadius: 14,
-        padding: '1.25rem',
-        marginBottom: '1rem'
-      }}>
-        <p style={{ fontSize: '0.75rem', color: CREAM, opacity: 0.4, marginBottom: 10, letterSpacing: '0.08em', textTransform: 'uppercase' }}>today's chain</p>
-        <p style={{ fontSize: '0.95rem', color: ORANGE, fontWeight: 600, lineHeight: 1.8, wordBreak: 'break-word' }}>
+      <div style={{ background: NAVY_CARD, border: `1px solid rgba(254,248,208,0.1)`, borderRadius: 14, padding: '1.25rem', marginBottom: '1rem' }}>
+        <p style={{ fontSize: '0.75rem', color: CREAM, opacity: 0.4, marginBottom: 10, letterSpacing: '0.08em', textTransform: 'uppercase' }}>the chain</p>
+        <p style={{ fontSize: '0.95rem', lineHeight: 1.8, wordBreak: 'break-word' }}>
           {correctAnswers.map((ans, i) => (
             <span key={i}>
-              <span style={{ color: checkAnswer(userAnswers[i] || '', ladder.questions[i]) ? '#4ade80' : '#f87171' }}>{ans}</span>
+              <span style={{ color: checkAnswer(userAnswers[i] || '', ladder.questions[i]) ? '#4ade80' : '#f87171', fontWeight: 600 }}>{ans}</span>
               {i < correctAnswers.length - 1 && <span style={{ color: CREAM, opacity: 0.4 }}> → </span>}
             </span>
           ))}
@@ -587,23 +593,10 @@ function ResultsScreen({ ladder, userAnswers, streakData, todayResponse, onHome 
       {ladder.questions.map((q, i) => {
         const accepted = checkAnswer(userAnswers[i] || '', q);
         return (
-          <div key={i} style={{
-            background: NAVY_CARD,
-            border: `1px solid rgba(254,248,208,0.1)`,
-            borderRadius: 14,
-            padding: '1.25rem',
-            marginBottom: '0.75rem'
-          }}>
+          <div key={i} style={{ background: NAVY_CARD, border: `1px solid rgba(254,248,208,0.1)`, borderRadius: 14, padding: '1.25rem', marginBottom: '0.75rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
               <span style={{ fontSize: '0.75rem', color: CREAM, opacity: 0.4, letterSpacing: '0.08em', textTransform: 'uppercase' }}>Q{i + 1}</span>
-              <span style={{
-                fontSize: '0.8rem',
-                fontWeight: 600,
-                color: accepted ? '#4ade80' : '#f87171',
-                background: accepted ? 'rgba(74,222,128,0.15)' : 'rgba(248,113,113,0.15)',
-                padding: '2px 10px',
-                borderRadius: 20
-              }}>
+              <span style={{ fontSize: '0.8rem', fontWeight: 600, color: accepted ? '#4ade80' : '#f87171', background: accepted ? 'rgba(74,222,128,0.15)' : 'rgba(248,113,113,0.15)', padding: '2px 10px', borderRadius: 20 }}>
                 {accepted ? '✓ correct' : '✗ incorrect'}
               </span>
             </div>
@@ -615,92 +608,31 @@ function ResultsScreen({ ladder, userAnswers, streakData, todayResponse, onHome 
               Correct answer: <span style={{ color: CREAM, fontWeight: 600, opacity: 1 }}>{q.answer}</span>
             </p>
             {q.explanation && (
-              <p style={{
-                fontSize: '0.85rem',
-                color: GOLD,
-                lineHeight: 1.6,
-                marginTop: 10,
-                paddingTop: 10,
-                borderTop: `1px solid rgba(254,248,208,0.1)`,
-                fontStyle: 'italic'
-              }}>{q.explanation}</p>
+              <p style={{ fontSize: '0.85rem', color: GOLD, lineHeight: 1.6, marginTop: 10, paddingTop: 10, borderTop: `1px solid rgba(254,248,208,0.1)`, fontStyle: 'italic' }}>{q.explanation}</p>
             )}
           </div>
         );
       })}
 
-      <div style={{
-        background: NAVY_CARD,
-        border: `1px solid rgba(254,248,208,0.1)`,
-        borderRadius: 14,
-        padding: '1.25rem',
-        marginBottom: '0.75rem',
-        fontFamily: 'monospace',
-        fontSize: '0.85rem',
-        lineHeight: 1.8,
-        whiteSpace: 'pre-wrap',
-        color: CREAM,
-        opacity: 0.8
-      }}>{shareText}</div>
+      <div style={{ background: NAVY_CARD, border: `1px solid rgba(254,248,208,0.1)`, borderRadius: 14, padding: '1.25rem', marginBottom: '0.75rem', fontFamily: 'monospace', fontSize: '0.85rem', lineHeight: 1.8, whiteSpace: 'pre-wrap', color: CREAM, opacity: 0.8 }}>{shareText}</div>
 
       <div style={{ display: 'flex', gap: 10, marginBottom: '0.75rem' }}>
         {navigator.share && (
-          <button type="button" onClick={nativeShare} style={{
-            flex: 1,
-            padding: '1rem',
-            background: ORANGE,
-            color: CREAM,
-            border: 'none',
-            borderRadius: 12,
-            fontSize: '1rem',
-            fontWeight: 700,
-            cursor: 'pointer',
-            fontFamily: 'Inter, sans-serif'
-          }}>Share ↗</button>
+          <button type="button" onClick={nativeShare} style={{ flex: 1, padding: '1rem', background: ORANGE, color: CREAM, border: 'none', borderRadius: 12, fontSize: '1rem', fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>Share ↗</button>
         )}
-        <button type="button" onClick={copyShare} style={{
-          flex: 1,
-          padding: '1rem',
-          background: copied ? '#4ade80' : 'transparent',
-          color: copied ? NAVY : CREAM,
-          border: copied ? '1.5px solid #4ade80' : `1.5px solid rgba(254,248,208,0.25)`,
-          borderRadius: 12,
-          fontSize: '1rem',
-          fontWeight: 600,
-          cursor: 'pointer',
-          fontFamily: 'Inter, sans-serif',
-          transition: 'all 0.2s'
-        }}>
+        <button type="button" onClick={copyShare} style={{ flex: 1, padding: '1rem', background: copied ? '#4ade80' : 'transparent', color: copied ? NAVY : CREAM, border: copied ? '1.5px solid #4ade80' : `1.5px solid rgba(254,248,208,0.25)`, borderRadius: 12, fontSize: '1rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif', transition: 'all 0.2s' }}>
           {copied ? '✓ Copied!' : 'Copy results'}
         </button>
       </div>
 
-      <button type="button" onClick={onHome} style={{
-        width: '100%',
-        padding: '1rem',
-        background: ORANGE,
-        color: CREAM,
-        border: 'none',
-        borderRadius: 12,
-        fontSize: '1rem',
-        fontWeight: 700,
-        cursor: 'pointer',
-        fontFamily: 'Inter, sans-serif'
-      }}>← Back to home</button>
+      <button type="button" onClick={onHome} style={{ width: '100%', padding: '1rem', background: ORANGE, color: CREAM, border: 'none', borderRadius: 12, fontSize: '1rem', fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>← Back to home</button>
     </div>
   );
 }
 
 function StatPill({ label, value }) {
   return (
-    <div style={{
-      flex: 1,
-      background: NAVY_CARD,
-      border: `1px solid rgba(254,248,208,0.1)`,
-      borderRadius: 10,
-      padding: '0.75rem 1rem',
-      textAlign: 'center'
-    }}>
+    <div style={{ flex: 1, background: NAVY_CARD, border: `1px solid rgba(254,248,208,0.1)`, borderRadius: 10, padding: '0.75rem 1rem', textAlign: 'center' }}>
       <p style={{ fontSize: '0.7rem', color: CREAM, opacity: 0.4, marginBottom: 4, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{label}</p>
       <p style={{ fontSize: '0.95rem', fontWeight: 600, color: CREAM }}>{value}</p>
     </div>
