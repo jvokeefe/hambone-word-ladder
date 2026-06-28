@@ -288,9 +288,10 @@ export default function App() {
     setPlayedDates(newPlayed);
 
     if (allResponses => {
-      const total = Object.values(newPlayed).reduce((acc, r) => acc + (r.score || 0), 0);
-      const possible = Object.keys(newPlayed).length * 5;
-      setCorrectPct(Math.round((total / possible) * 100));
+      const totalPoints = Object.values({ ...playedDates, [activeDate]: { score } })
+      .reduce((acc, r) => acc + (r.score || 0), 0);
+    const totalPossible = (Object.keys(playedDates).length + 1) * 5;
+    setCorrectPct(Math.round((totalPoints / totalPossible) * 100));
     }) {}
 
     setFinalAnswers([...answers]);
