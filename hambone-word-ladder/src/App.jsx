@@ -501,7 +501,7 @@ function PlayScreen({ ladder, activeDate, answers, setAnswers, onSubmit, onBack 
         marginBottom: '1.5rem'
       }}>
         <p style={{ fontSize: '0.8rem', color: ORANGE, lineHeight: 1.6, textAlign: 'center' }}>
-          Each correct answer begins with the last letter of the answer before it — and Q5 loops back to Q1. For example if the answer to Q1 is Swift, the answer to Q2 will start with T and so on. The last letter of the correct answer to Q5 will be the first letter in the answer to Q1.
+          Each correct answer begins with the last letter of the answer before it — and Q5 loops back to Q1. If the answer to Q1 is Swift, the answer to Q2 will start with T, etc... The last letter of the correct answer to Q5 will be the first letter in the answer to Q1.
         </p>
       </div>
 
