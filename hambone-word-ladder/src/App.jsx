@@ -180,7 +180,6 @@ function levenshtein(a, b) {
       } else {
         dp[i][j] = 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
       }
-      // transposition
       if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
         dp[i][j] = Math.min(dp[i][j], dp[i - 2][j - 2] + 1);
       }
@@ -345,7 +344,12 @@ export default function App() {
           todayResponse={todayResponse}
           todayAvailable={!!buildLadderForDate(allRows, today)}
           onPlayToday={() => playDate(today)}
-          onReviewToday={() => { setActiveLadder(buildLadderForDate(allRows, today)); setActiveDate(today); setFinalAnswers([playedDates[today]?.a1, playedDates[today]?.a2, playedDates[today]?.a3, playedDates[today]?.a4, playedDates[today]?.a5]); setScreen('results'); }}
+          onReviewToday={() => {
+            setActiveLadder(buildLadderForDate(allRows, today));
+            setActiveDate(today);
+            setFinalAnswers([playedDates[today]?.a1, playedDates[today]?.a2, playedDates[today]?.a3, playedDates[today]?.a4, playedDates[today]?.a5]);
+            setScreen('results');
+          }}
           past7={past7}
           playedDates={playedDates}
           onPlayPast={(date) => playDate(date)}
@@ -483,11 +487,23 @@ function PlayScreen({ ladder, activeDate, answers, setAnswers, onSubmit, onBack 
       )}
 
       {ladder.theme && (
-        <div style={{ background: 'rgba(238,201,24,0.1)', border: `1px solid rgba(238,201,24,0.3)`, borderRadius: 12, padding: '0.875rem 1.25rem', marginBottom: '1.5rem', textAlign: 'center' }}>
+        <div style={{ background: 'rgba(238,201,24,0.1)', border: `1px solid rgba(238,201,24,0.3)`, borderRadius: 12, padding: '0.875rem 1.25rem', marginBottom: '1rem', textAlign: 'center' }}>
           <p style={{ fontSize: '0.75rem', color: GOLD, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 4 }}>today's theme</p>
           <p style={{ fontSize: '0.95rem', fontWeight: 600, color: CREAM }}>{ladder.theme}</p>
         </div>
       )}
+
+      <div style={{
+        background: 'rgba(244,135,23,0.08)',
+        border: `1px solid rgba(244,135,23,0.2)`,
+        borderRadius: 12,
+        padding: '0.875rem 1.25rem',
+        marginBottom: '1.5rem'
+      }}>
+        <p style={{ fontSize: '0.8rem', color: ORANGE, lineHeight: 1.6, textAlign: 'center' }}>
+          Each correct answer begins with the last letter of the answer before it — and Q5 loops back to Q1.
+        </p>
+      </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', marginBottom: '1.5rem' }}>
         {ladder.questions.map((q, i) => (
