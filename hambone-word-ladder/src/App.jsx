@@ -276,9 +276,8 @@ export default function App() {
     await saveResponse(sessionId, activeDate, answers, score);
 
     const isToday = activeDate === today;
-    let newStreak = streakData;
     if (isToday) {
-      newStreak = await updateStreak(sessionId);
+      const newStreak = await updateStreak(sessionId);
       setStreakData(newStreak);
       setTodayPlayed(true);
       setTodayResponse({ score });
@@ -287,12 +286,9 @@ export default function App() {
     const newPlayed = { ...playedDates, [activeDate]: { score, a1: answers[0], a2: answers[1], a3: answers[2], a4: answers[3], a5: answers[4] } };
     setPlayedDates(newPlayed);
 
-    if (allResponses => {
-      const totalPoints = Object.values({ ...playedDates, [activeDate]: { score } })
-      .reduce((acc, r) => acc + (r.score || 0), 0);
-    const totalPossible = (Object.keys(playedDates).length + 1) * 5;
+    const totalPoints = Object.values(newPlayed).reduce((acc, r) => acc + (r.score || 0), 0);
+    const totalPossible = Object.keys(newPlayed).length * 5;
     setCorrectPct(Math.round((totalPoints / totalPossible) * 100));
-    }) {}
 
     setFinalAnswers([...answers]);
     setScreen('results');
@@ -338,7 +334,7 @@ export default function App() {
           todayResponse={todayResponse}
           todayAvailable={!!buildLadderForDate(allRows, today)}
           onPlayToday={() => playDate(today)}
-          onReviewToday={() => { setActiveLadder(buildLadderForDate(allRows, today)); setActiveDate(today); setScreen('results'); }}
+          onReviewToday={() => { setActiveLadder(buildLadderForDate(allRows, today)); setActiveDate(today); setFinalAnswers([playedDates[today]?.a1, playedDates[today]?.a2, playedDates[today]?.a3, playedDates[today]?.a4, playedDates[today]?.a5]); setScreen('results'); }}
           past7={past7}
           playedDates={playedDates}
           onPlayPast={(date) => playDate(date)}
@@ -385,6 +381,7 @@ function HomeScreen({ today, streakData, correctPct, todayPlayed, todayResponse,
             <p style={{ fontSize: '0.75rem', color: CREAM, opacity: 0.5, marginBottom: 8, letterSpacing: '0.08em', textTransform: 'uppercase' }}>today's score</p>
             <p style={{ fontFamily: "'DM Serif Display', serif", fontSize: '3.5rem', fontWeight: 400, color: CREAM, lineHeight: 1 }}>{todayResponse.score}/5</p>
             <p style={{ fontSize: '0.85rem', color: CREAM, opacity: 0.5, marginTop: 10 }}>Come back tomorrow for a new ladder!</p>
+            <p style={{ fontSize: '0.75rem', color: CREAM, opacity: 0.3, marginTop: 6 }}>New ladder every day at 7 a.m. Eastern</p>
           </>
         ) : todayAvailable ? (
           <>
@@ -399,11 +396,13 @@ function HomeScreen({ today, streakData, correctPct, todayPlayed, todayResponse,
         )}
       </div>
 
-      <div style={{ display: 'flex', gap: 10, marginBottom: '1.25rem' }}>
+      <div style={{ display: 'flex', gap: 10, marginBottom: '0.75rem' }}>
         <StatPill label="Current streak" value={`${streakData.streak || 0} days`} />
         <StatPill label="Longest streak" value={`${streakData.best_streak || 0} days`} />
         {correctPct !== null && <StatPill label="Correct %" value={`${correctPct}%`} />}
       </div>
+
+      <p style={{ fontSize: '0.75rem', color: CREAM, opacity: 0.3, textAlign: 'center', marginBottom: '1.25rem' }}>New ladder every day at 7 a.m. Eastern</p>
 
       {!todayPlayed && todayAvailable && (
         <button onClick={onPlayToday} style={{
