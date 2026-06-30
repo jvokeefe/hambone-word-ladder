@@ -471,9 +471,21 @@ function HomeScreen({ today, streakData, correctPct, todayPlayed, todayResponse,
 }
 
 function PlayScreen({ ladder, activeDate, answers, setAnswers, onSubmit, onBack }) {
+  const [hintMode, setHintMode] = useState('off');
   const allFilled = answers.every(a => a.trim());
   const today = getTodayKey();
   const isPast = activeDate !== today;
+
+  function getHint(i) {
+    if (hintMode === 'off') return null;
+    const q = ladder.questions[i];
+    const first = q.answer.trim()[0]?.toUpperCase();
+    const last = q.answer.trim().slice(-1).toUpperCase();
+    if (hintMode === 'first') return `Starts with ${first}`;
+    if (hintMode === 'last') return `Ends with ${last}`;
+    if (hintMode === 'both') return `Starts with ${first}, ends with ${last}`;
+    return null;
+  }
 
   return (
     <div>
@@ -498,46 +510,95 @@ function PlayScreen({ ladder, activeDate, answers, setAnswers, onSubmit, onBack 
         border: `1px solid rgba(244,135,23,0.2)`,
         borderRadius: 12,
         padding: '0.875rem 1.25rem',
-        marginBottom: '1.5rem'
+        marginBottom: '1rem'
       }}>
         <p style={{ fontSize: '0.8rem', color: ORANGE, lineHeight: 1.6, textAlign: 'center' }}>
-          Each correct answer begins with the last letter of the answer before it — and Q5 loops back to Q1. If the answer to Q1 is Swift, the answer to Q2 will start with T, etc... The last letter of the correct answer to Q5 will be the first letter in the answer to Q1.
+          Each correct answer begins with the last letter of the answer before it — and Q5 loops back to Q1.
         </p>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', marginBottom: '1.5rem' }}>
-        {ladder.questions.map((q, i) => (
-          <div key={i}>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
-              <span style={{ fontSize: '0.75rem', color: ORANGE, fontWeight: 700, minWidth: 20 }}>{i + 1}.</span>
-              <p style={{ fontFamily: "'DM Serif Display', serif", fontSize: '1.1rem', fontWeight: 400, lineHeight: 1.4, color: CREAM }}>{q.question}</p>
-            </div>
-            <input
-              type="text"
-              value={answers[i]}
-              onChange={e => {
-                const updated = [...answers];
-                updated[i] = e.target.value;
-                setAnswers(updated);
-              }}
-              onKeyDown={e => {
-                if (e.key === 'Enter') {
-                  const next = document.getElementById(`answer-${i + 1}`);
-                  if (next) next.focus();
-                }
-              }}
-              id={`answer-${i}`}
-              placeholder="Your answer..."
+      <div style={{
+        background: NAVY_CARD,
+        border: `1px solid rgba(254,248,208,0.1)`,
+        borderRadius: 12,
+        padding: '0.75rem 1rem',
+        marginBottom: '1.5rem',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        flexWrap: 'wrap',
+        gap: 8
+      }}>
+        <span style={{ fontSize: '0.8rem', color: CREAM, opacity: 0.6 }}>Need a hint?</span>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {[
+            { key: 'off', label: 'Off' },
+            { key: 'first', label: 'First letter' },
+            { key: 'last', label: 'Last letter' },
+            { key: 'both', label: 'Both' }
+          ].map(opt => (
+            <button
+              key={opt.key}
+              onClick={() => setHintMode(opt.key)}
               style={{
-                width: '100%', padding: '0.75rem 1rem', fontSize: '1rem',
-                border: `1.5px solid rgba(254,248,208,0.2)`, borderRadius: 10, outline: 'none',
-                background: NAVY_CARD, fontFamily: 'Inter, sans-serif', color: CREAM, transition: 'border-color 0.15s'
+                padding: '0.4rem 0.7rem',
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                borderRadius: 8,
+                border: hintMode === opt.key ? `1.5px solid ${ORANGE}` : `1.5px solid rgba(254,248,208,0.15)`,
+                background: hintMode === opt.key ? 'rgba(244,135,23,0.15)' : 'transparent',
+                color: hintMode === opt.key ? ORANGE : CREAM,
+                cursor: 'pointer',
+                fontFamily: 'Inter, sans-serif',
+                opacity: hintMode === opt.key ? 1 : 0.6,
+                transition: 'all 0.15s'
               }}
-              onFocus={e => e.target.style.borderColor = ORANGE}
-              onBlur={e => e.target.style.borderColor = 'rgba(254,248,208,0.2)'}
-            />
-          </div>
-        ))}
+            >{opt.label}</button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', marginBottom: '1.5rem' }}>
+        {ladder.questions.map((q, i) => {
+          const hint = i === 0 && (hintMode === 'first' || hintMode === 'both')
+            ? (hintMode === 'both' ? getHint(i)?.replace(/Starts with \w, /, '') : null)
+            : getHint(i);
+          return (
+            <div key={i}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
+                <span style={{ fontSize: '0.75rem', color: ORANGE, fontWeight: 700, minWidth: 20 }}>{i + 1}.</span>
+                <p style={{ fontFamily: "'DM Serif Display', serif", fontSize: '1.1rem', fontWeight: 400, lineHeight: 1.4, color: CREAM }}>{q.question}</p>
+              </div>
+              <input
+                type="text"
+                value={answers[i]}
+                onChange={e => {
+                  const updated = [...answers];
+                  updated[i] = e.target.value;
+                  setAnswers(updated);
+                }}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    const next = document.getElementById(`answer-${i + 1}`);
+                    if (next) next.focus();
+                  }
+                }}
+                id={`answer-${i}`}
+                placeholder="Your answer..."
+                style={{
+                  width: '100%', padding: '0.75rem 1rem', fontSize: '1rem',
+                  border: `1.5px solid rgba(254,248,208,0.2)`, borderRadius: 10, outline: 'none',
+                  background: NAVY_CARD, fontFamily: 'Inter, sans-serif', color: CREAM, transition: 'border-color 0.15s'
+                }}
+                onFocus={e => e.target.style.borderColor = ORANGE}
+                onBlur={e => e.target.style.borderColor = 'rgba(254,248,208,0.2)'}
+              />
+              {hint && (
+                <p style={{ fontSize: '0.75rem', color: GOLD, opacity: 0.8, marginTop: 6 }}>💡 {hint}</p>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       <button onClick={onSubmit} disabled={!allFilled} style={{
