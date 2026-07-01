@@ -520,7 +520,7 @@ function PlayScreen({ ladder, activeDate, answers, setAnswers, onSubmit, onBack 
         marginBottom: '1.5rem'
       }}>
         <p style={{ fontSize: '0.8rem', color: ORANGE, lineHeight: 1.6, textAlign: 'center' }}>
-          Each correct answer begins with the last letter of the answer before it — and Q5 loops back to Q1.
+          Each correct answer begins with the last letter of the answer before it. If the answer to Q1 is 'Swift' then the answer to Q2 begins with a T; the Q1 answer begins with the last letter of the and Q5 answer.
         </p>
       </div>
 
@@ -568,15 +568,15 @@ function PlayScreen({ ladder, activeDate, answers, setAnswers, onSubmit, onBack 
               <div style={{ marginTop: 8 }}>
                 {!isOpen ? (
                   <button
-                    onClick={() => setOpenHint(i)}
-                    style={{
-                      background: 'transparent', border: 'none', color: CREAM,
-                      opacity: 0.35, fontSize: '0.75rem', cursor: 'pointer',
-                      fontFamily: 'Inter, sans-serif', padding: 0
-                    }}
-                  >
-                    💡 hint
-                  </button>
+                  onClick={() => setOpenHint(i)}
+                  style={{
+                    background: 'transparent', border: 'none', color: ORANGE,
+                    opacity: 0.7, fontSize: '0.75rem', cursor: 'pointer',
+                    fontFamily: 'Inter, sans-serif', padding: 0, fontWeight: 600
+                  }}
+                >
+                  💡 hint
+                </button>
                 ) : (
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                     <span style={{ fontSize: '0.75rem', color: CREAM, opacity: 0.4 }}>Show me:</span>
