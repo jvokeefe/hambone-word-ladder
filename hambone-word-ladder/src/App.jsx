@@ -471,19 +471,26 @@ function HomeScreen({ today, streakData, correctPct, todayPlayed, todayResponse,
 }
 
 function PlayScreen({ ladder, activeDate, answers, setAnswers, onSubmit, onBack }) {
-  const [hintMode, setHintMode] = useState('off');
+  const [hints, setHints] = useState({});
+  const [openHint, setOpenHint] = useState(null);
   const allFilled = answers.every(a => a.trim());
   const today = getTodayKey();
   const isPast = activeDate !== today;
 
-  function getHint(i) {
-    if (hintMode === 'off') return null;
+  function setHintMode(i, mode) {
+    setHints(prev => ({ ...prev, [i]: mode }));
+    setOpenHint(null);
+  }
+
+  function getHintText(i) {
+    const mode = hints[i];
+    if (!mode || mode === 'off') return null;
     const q = ladder.questions[i];
     const first = q.answer.trim()[0]?.toUpperCase();
     const last = q.answer.trim().slice(-1).toUpperCase();
-    if (hintMode === 'first') return `Starts with ${first}`;
-    if (hintMode === 'last') return `Ends with ${last}`;
-    if (hintMode === 'both') return `Starts with ${first}, ends with ${last}`;
+    if (mode === 'first') return `Starts with ${first}`;
+    if (mode === 'last') return `Ends with ${last}`;
+    if (mode === 'both') return `Starts with ${first}, ends with ${last}`;
     return null;
   }
 
@@ -510,59 +517,19 @@ function PlayScreen({ ladder, activeDate, answers, setAnswers, onSubmit, onBack 
         border: `1px solid rgba(244,135,23,0.2)`,
         borderRadius: 12,
         padding: '0.875rem 1.25rem',
-        marginBottom: '1rem'
+        marginBottom: '1.5rem'
       }}>
         <p style={{ fontSize: '0.8rem', color: ORANGE, lineHeight: 1.6, textAlign: 'center' }}>
-          Each correct answer begins with the last letter of the answer before it. If the answer to Q1 is 'Swift' - then the answer to Q2 beings with 'T'; the Q1 answer begins with the last letter from the Q5 answer.
+          Each correct answer begins with the last letter of the answer before it — and Q5 loops back to Q1.
         </p>
-      </div>
-
-      <div style={{
-        background: NAVY_CARD,
-        border: `1px solid rgba(254,248,208,0.1)`,
-        borderRadius: 12,
-        padding: '0.75rem 1rem',
-        marginBottom: '1.5rem',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        flexWrap: 'wrap',
-        gap: 8
-      }}>
-        <span style={{ fontSize: '0.8rem', color: CREAM, opacity: 0.6 }}>Need a hint?</span>
-        <div style={{ display: 'flex', gap: 6 }}>
-          {[
-            { key: 'off', label: 'Off' },
-            { key: 'first', label: 'First letter' },
-            { key: 'last', label: 'Last letter' },
-            { key: 'both', label: 'Both' }
-          ].map(opt => (
-            <button
-              key={opt.key}
-              onClick={() => setHintMode(opt.key)}
-              style={{
-                padding: '0.4rem 0.7rem',
-                fontSize: '0.75rem',
-                fontWeight: 600,
-                borderRadius: 8,
-                border: hintMode === opt.key ? `1.5px solid ${ORANGE}` : `1.5px solid rgba(254,248,208,0.15)`,
-                background: hintMode === opt.key ? 'rgba(244,135,23,0.15)' : 'transparent',
-                color: hintMode === opt.key ? ORANGE : CREAM,
-                cursor: 'pointer',
-                fontFamily: 'Inter, sans-serif',
-                opacity: hintMode === opt.key ? 1 : 0.6,
-                transition: 'all 0.15s'
-              }}
-            >{opt.label}</button>
-          ))}
-        </div>
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', marginBottom: '1.5rem' }}>
         {ladder.questions.map((q, i) => {
-          const hint = i === 0 && (hintMode === 'first' || hintMode === 'both')
-            ? (hintMode === 'both' ? getHint(i)?.replace(/Starts with \w, /, '') : null)
-            : getHint(i);
+          const hintText = getHintText(i);
+          const isOpen = openHint === i;
+          const activeMode = hints[i] || 'off';
+
           return (
             <div key={i}>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
@@ -593,9 +560,57 @@ function PlayScreen({ ladder, activeDate, answers, setAnswers, onSubmit, onBack 
                 onFocus={e => e.target.style.borderColor = ORANGE}
                 onBlur={e => e.target.style.borderColor = 'rgba(254,248,208,0.2)'}
               />
-              {hint && (
-                <p style={{ fontSize: '0.75rem', color: GOLD, opacity: 0.8, marginTop: 6 }}>💡 {hint}</p>
+
+              {hintText && (
+                <p style={{ fontSize: '0.75rem', color: GOLD, marginTop: 6 }}>💡 {hintText}</p>
               )}
+
+              <div style={{ marginTop: 8 }}>
+                {!isOpen ? (
+                  <button
+                    onClick={() => setOpenHint(i)}
+                    style={{
+                      background: 'transparent', border: 'none', color: CREAM,
+                      opacity: 0.35, fontSize: '0.75rem', cursor: 'pointer',
+                      fontFamily: 'Inter, sans-serif', padding: 0
+                    }}
+                  >
+                    💡 hint
+                  </button>
+                ) : (
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.75rem', color: CREAM, opacity: 0.4 }}>Show me:</span>
+                    {[
+                      { key: 'first', label: 'First letter' },
+                      { key: 'last', label: 'Last letter' },
+                      { key: 'both', label: 'Both' },
+                      { key: 'off', label: 'Off' }
+                    ].map(opt => (
+                      <button
+                        key={opt.key}
+                        onClick={() => setHintMode(i, opt.key)}
+                        style={{
+                          padding: '0.35rem 0.65rem',
+                          fontSize: '0.75rem',
+                          fontWeight: 600,
+                          borderRadius: 8,
+                          border: activeMode === opt.key ? `1.5px solid ${ORANGE}` : `1.5px solid rgba(254,248,208,0.15)`,
+                          background: activeMode === opt.key ? 'rgba(244,135,23,0.15)' : 'transparent',
+                          color: activeMode === opt.key ? ORANGE : CREAM,
+                          cursor: 'pointer',
+                          fontFamily: 'Inter, sans-serif',
+                          opacity: activeMode === opt.key ? 1 : 0.6,
+                          transition: 'all 0.15s'
+                        }}
+                      >{opt.label}</button>
+                    ))}
+                    <button
+                      onClick={() => setOpenHint(null)}
+                      style={{ background: 'transparent', border: 'none', color: CREAM, opacity: 0.3, fontSize: '0.75rem', cursor: 'pointer', fontFamily: 'Inter, sans-serif', padding: 0 }}
+                    >✕</button>
+                  </div>
+                )}
+              </div>
             </div>
           );
         })}
@@ -612,7 +627,6 @@ function PlayScreen({ ladder, activeDate, answers, setAnswers, onSubmit, onBack 
     </div>
   );
 }
-
 function ResultsScreen({ ladder, activeDate, userAnswers, streakData, todayResponse, onHome }) {
   const [copied, setCopied] = useState(false);
   const today = getTodayKey();
