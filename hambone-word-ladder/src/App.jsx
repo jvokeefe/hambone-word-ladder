@@ -405,7 +405,7 @@ function HomeScreen({ today, streakData, correctPct, todayPlayed, todayResponse,
           </>
         ) : (
           <>
-            <p style={{ fontFamily: "'DM Serif Display', serif", fontSize: '1.4rem', fontWeight: 400, marginBottom: 8, color: CREAM }}>No ladder today - have a great weekend!</p>
+            <p style={{ fontFamily: "'DM Serif Display', serif", fontSize: '1.4rem', fontWeight: 400, marginBottom: 8, color: CREAM }}>No ladder today - we'll be back soon!</p>
             <p style={{ fontSize: '0.875rem', color: CREAM, opacity: 0.6 }}>Check back soon!</p>
           </>
         )}
